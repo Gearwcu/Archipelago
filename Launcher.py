@@ -34,6 +34,79 @@ from Utils import env_cleared_lib_path, init_logging, is_linux, is_macos, is_win
 if __name__ == "__main__":
     init_logging('Launcher')
 
+from worlds.LauncherComponents import Component, components, icon_paths, SuffixIdentifier, Type
+from worlds import failed_world_loads
+
+
+def open_host_yaml():
+    s = settings.get_settings()
+    file = s.filename
+    s.save()
+    assert file, "host.yaml missing"
+    if is_linux:
+        exe = which('sensible-editor') or which('gedit') or \
+              which('xdg-open') or which('gnome-open') or which('kde-open')
+    elif is_macos:
+        exe = which("open")
+    else:
+        webbrowser.open(file)
+        return
+
+    env = env_cleared_lib_path()
+    subprocess.Popen([exe, file], env=env)
+
+def open_patch():
+    suffixes = []
+    for c in components:
+        if c.type == Type.CLIENT and \
+                isinstance(c.file_identifier, SuffixIdentifier) and \
+                (c.script_name is None or isfile(get_exe(c)[-1])):
+            suffixes += c.file_identifier.suffixes
+    try:
+        filename = open_filename("Select patch", (("Patches", suffixes),))
+    except Exception as e:
+        messagebox("Error", str(e), error=True)
+    else:
+        file, component = identify(filename)
+        if file and component:
+            exe = get_exe(component)
+            if exe is None or not isfile(exe[-1]):
+                exe = get_exe("Launcher")
+
+            launch([*exe, file], component.cli)
+
+
+def generate_yamls(*args):
+    from Options import generate_yaml_templates
+
+    parser = argparse.ArgumentParser(description="Generate Template Options", usage="[-h] [--skip_open_folder]")
+    parser.add_argument("--skip_open_folder", action="store_true")
+    args = parser.parse_args(args)
+
+    target = Utils.user_path("Players", "Templates")
+    generate_yaml_templates(target, False)
+    if not args.skip_open_folder:
+        open_folder(target)
+
+
+def browse_files():
+    open_folder(user_path())
+
+
+def open_folder(folder_path):
+    if is_linux:
+        exe = which('xdg-open') or which('gnome-open') or which('kde-open')
+    elif is_macos:
+        exe = which("open")
+    else:
+        webbrowser.open(folder_path)
+        return
+
+    if exe:
+        env = env_cleared_lib_path()
+        subprocess.Popen([exe, folder_path], env=env)
+    else:
+        logging.warning(f"No file browser available to open {folder_path}")
 
 
 def update_settings():
@@ -150,7 +223,8 @@ def run_gui(launch_components: list["Component"], args: Any) -> None:
         button_layout: ScrollBox = ObjectProperty(None)
         search_box: MDTextField = ObjectProperty(None)
         cards: list[LauncherCard]
-        current_filter: Sequence["Type"] | None
+        current_filter: Sequence[str, "Type"] | None
+        failed_worlds: bool = bool(failed_world_loads)
 
         def __init__(self, ctx=None, components=None, args=None):
             self.title = self.base_title + " " + Utils.__version__
@@ -337,6 +411,39 @@ def run_gui(launch_components: list["Component"], args: Any) -> None:
 
             MDSnackbar(MDSnackbarText(text=open_text), y=dp(24), pos_hint={"center_x": 0.5},
                        size_hint_x=0.5).open()
+
+        @staticmethod
+        def copy_to_clipboard(text):
+            from kivy.core.clipboard import Clipboard
+            Clipboard.copy(text)
+            MDSnackbar(MDSnackbarText(text="Copied to clipboard."), y=dp(24), pos_hint={"center_x": 0.5},
+                       size_hint_x=0.5).open()
+
+        def display_failed(self):
+            """Display a dialog showing the exceptions produced by any world that failed to load during
+            initialization."""
+            if not self.failed_worlds:
+                return
+            from kivymd.uix.dialog import MDDialog, MDDialogIcon, MDDialogHeadlineText, MDDialogContentContainer
+            from kivymd.uix.divider import MDDivider
+            from kivymd.uix.list import MDListItem, MDListItemHeadlineText, MDListItemSupportingText
+            entries = []
+            for world, reason in failed_world_loads.items():
+                entries.append(MDListItem(
+                    MDListItemHeadlineText(text=world),
+                    MDListItemSupportingText(text=reason),
+                    on_release=lambda x, r=reason: self.copy_to_clipboard(r)
+                ))
+            dialog = MDDialog(
+                MDDialogIcon(icon="alert"),
+                MDDialogHeadlineText(text="Failed World Loads"),
+                MDDialogContentContainer(
+                    MDDivider(),
+                    *entries,
+                    orientation="vertical",
+                )
+            )
+            dialog.open()
 
         def _on_drop_file(self, window: Window, filename: bytes, x: int, y: int) -> None:
             """ When a patch file is dropped into the window, run the associated component. """
