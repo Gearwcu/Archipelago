@@ -230,8 +230,11 @@ class TestProgressiveEraRequirementsWithBoostsanity(CivVITestBase):
         accessible_eras += [EraType.ERA_ATOMIC]
         check_eras_accessible(accessible_eras)
 
-        # Since we collect 2 in the ancient era, information and future era have same logic requirement
+        # Since we collect 2 in the ancient era, information and future era have same logic requirement <Wrong assertion
         self.collect(progresive_era_item)
         accessible_eras += [EraType.ERA_INFORMATION]
+        check_eras_accessible(accessible_eras)
+
+        self.collect(progresive_era_item)
         accessible_eras += [EraType.ERA_FUTURE]
         check_eras_accessible(accessible_eras)
